@@ -11,10 +11,12 @@
 #    or for general computing purposes". Upstream's `test` job (repo init +
 #    repo sync on ubuntu-latest) is intentionally not carried over.
 #
-#  * No `repo` and no `make` ever run in the devspace -- the crave rules forbid
-#    it, and installing the repo tool there is treated as circumvention. The
-#    project is selected with an explicit --projectID, and every repo/make call
-#    happens on the build server inside ci/crave-build.sh.
+#  * No `repo sync` and no `make` ever run in the devspace -- the crave rules
+#    forbid both, and installing the repo tool there is treated as
+#    circumvention. The one exception is a single guarded `repo init`, which
+#    the rules themselves prescribe and which the crave CLI needs in order to
+#    identify the workspace at all (see "Prepare the crave workspace"). Every
+#    sync and every make happens on the build server, inside ci/crave-build.sh.
 #
 #  * Artifacts are pulled to the devspace and uploaded from the runner with the
 #    ephemeral per-job GITHUB_TOKEN. crave's own /opt/crave/github-actions/
@@ -118,12 +120,39 @@ jobs:
       - name: Prepare the crave workspace
         run: |
           set -euo pipefail
-          # Just the directory and crave.yaml. No repo init here on purpose --
-          # crave is told the project with --projectID instead.
-          mkdir -p "$PROJECTFOLDER/.repo/manifests"
+          export PATH="$HOME/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+          # --projectID is NOT enough. The crave CLI still resolves *which
+          # workspace* a command applies to by walking up from $PWD for a
+          # .repo and reading the manifest remote out of it; with only a
+          # hand-made .repo/manifests/crave.yaml it dies two seconds in with
+          # "Error: Could not get project root/url". That is exactly how run
+          # 32906601281 failed. So the workspace gets repo-init'ed once.
+          #
+          # This is `repo init` and nothing else. The rules forbid `repo sync`
+          # in the devspace ("Do not use repo sync, use crave run instead")
+          # and explicitly show `repo init ... --depth 1` as the command you
+          # are meant to run. /usr/bin/repo is a root-owned shim preinstalled
+          # by crave -- we install nothing, which is the part that gets people
+          # banned. Costs ~20MB and only ever runs once per devspace.
+          mkdir -p "$PROJECTFOLDER"
+          cd "$PROJECTFOLDER"
+          git config --global --get user.email >/dev/null 2>&1 || \
+            git config --global user.email "${{ github.repository_owner }}@users.noreply.github.com"
+          git config --global --get user.name >/dev/null 2>&1 || \
+            git config --global user.name "${{ github.repository_owner }}"
+          if [ ! -d .repo/manifests.git ]; then
+            repo init -u https://github.com/accupara/los22.git -b lineage-22.1 \
+                      --git-lfs --depth 1
+          fi
+
+          # Written after repo init, since init rewrites .repo/manifests.
+          # The key must be the exact dashboard project name: upstream's
+          # template says "LOS 22", which silently no-ops and loses workspace
+          # persistence.
           printf '%s\n' "\"$CRAVE_PROJECT_NAME\":" '  ignoreClientHostname: true' \
-            > "$PROJECTFOLDER/.repo/manifests/crave.yaml"
-          cat "$PROJECTFOLDER/.repo/manifests/crave.yaml"
+            > .repo/manifests/crave.yaml
+          cat .repo/manifests/crave.yaml
 
       - name: Sync, patch and build through crave run
         env:
