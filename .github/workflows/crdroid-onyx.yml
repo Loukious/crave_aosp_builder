@@ -154,6 +154,30 @@ jobs:
             > .repo/manifests/crave.yaml
           cat .repo/manifests/crave.yaml
 
+      - name: Preflight the patch set before spending queue time
+        env:
+          KERNEL_RELEASE_TAG: ${{ inputs.kernel_release_tag }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+          # crave's queue is the expensive part, not the build. Run 32950868319
+          # sat in the queue for three hours and then failed in 3m55s, in the
+          # kernel staging step, for a reason that was knowable up front. So
+          # everything checkable WITHOUT a synced tree is checked here first:
+          # the patch files parse, every patches/ dir has a project mapping, the
+          # OTA template still carries the unofficial identity, and the kernel
+          # asset actually resolves, downloads and yields a valid arm64 Image.
+          #
+          # This runs on the self-hosted runner inside the devspace, so it adds
+          # nothing to the GitHub-hosted footprint (still just the one API call
+          # in the wake job) and nothing to the crave queue. Takes a few seconds.
+          rm -rf /tmp/onyx-preflight
+          git clone --depth 1 -b "$PATCHES_BRANCH" "$PATCHES_REPO" /tmp/onyx-preflight
+          DEVICE="$DEVICE" KERNEL_RELEASE_TAG="$KERNEL_RELEASE_TAG" \
+            bash /tmp/onyx-preflight/apply.sh --preflight
+          rm -rf /tmp/onyx-preflight
+
       - name: Sync, patch and build through crave run
         env:
           SYNC_ONLY: ${{ inputs.sync_only == true && '1' || '0' }}
