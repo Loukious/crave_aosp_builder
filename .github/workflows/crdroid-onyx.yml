@@ -176,7 +176,6 @@ jobs:
           REMOTE="$REMOTE && git clone --depth 1 -b $PATCHES_BRANCH $PATCHES_REPO /tmp/onyx-ci"
           REMOTE="$REMOTE && DEVICE=$DEVICE SYNC_ONLY=$SYNC_ONLY"
           REMOTE="$REMOTE KERNEL_RELEASE_TAG='$KERNEL_RELEASE_TAG'"
-          REMOTE="$REMOTE BUILD_USERNAME=${{ github.actor }}"
           REMOTE="$REMOTE bash /tmp/onyx-ci/ci/crave-build.sh"
 
           echo "remote command: $REMOTE"
@@ -226,11 +225,12 @@ jobs:
           "$GH" release create "$TAG" \
             --repo "${{ github.repository }}" \
             --title "crDroid 16.0 - onyx - $(date -u +%Y-%m-%d)" \
-            --notes "Unofficial crDroid 16.0 for onyx (POCO F7).
+            --notes "Unofficial crDroid 16.0 for onyx (POCO F7). Built by Loukious.
+          Not an official crDroid release and not eligible for crDroid support.
 
           PixelOS GApps and Launcher, LHDC A2DP codec, gesture navigation space,
-          Google AI Wallpapers fix, Kono-Ha GKI kernel with KernelSU Next
-          (charging bypass off), OS3.0.302.0 firmware.
+          Google AI Wallpapers fix, Pixel lockscreen Now Playing, Kono-Ha GKI
+          kernel with KernelSU Next (charging bypass off), OS3.0.302.0 firmware.
 
           Built from crDroid 16.0 HEAD by [run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." \
             || echo "release $TAG already exists, uploading into it"
