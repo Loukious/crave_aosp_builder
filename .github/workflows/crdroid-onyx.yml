@@ -70,7 +70,7 @@ env:
   PROJECTFOLDER: /crave-devspaces/Lineage22
   DEVICE: onyx
   PATCHES_REPO: https://github.com/Loukious/crdroid_onyx_patches
-  PATCHES_BRANCH: crdroid-16.0
+  PATCHES_BRANCH: evolution-bka
 
 jobs:
   wake:
