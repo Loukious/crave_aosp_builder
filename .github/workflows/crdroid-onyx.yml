@@ -339,9 +339,9 @@ jobs:
                 "size": $SIZE_BYTES,
                 "version": "$VERSION",
                 "buildtype": "userdebug",
-                "forum": "https://github.com/Loukious/crave_aosp_builder/releases",
+                "forum": "https://github.com/Loukious/crave_aosp_builder/discussions",
                 "firmware": "https://sourceforge.net/projects/${SF_PROJECT}/files/",
-                "paypal": "",
+                "paypal": "https://buymeacoffee.com/loukious",
                 "github": "Loukious"
               }
             ]
