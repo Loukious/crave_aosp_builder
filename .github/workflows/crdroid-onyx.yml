@@ -317,7 +317,15 @@ jobs:
           # CrDroid's OTA feed is the same pattern: LineageOS-style JSON whose
           # download URLs point at SourceForge /download links.
           if [ -n "${SF_URL:-}" ] && [ -n "${PATCHES_TOKEN:-}" ]; then
-            OTA_TS="$(unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p')"
+            # post-timestamp: prefer unzip, fall back to python's zipfile --
+            # the devspace runner is not guaranteed to have unzip installed.
+            OTA_TS="$(
+              if command -v unzip >/dev/null 2>&1; then
+                unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p'
+              else
+                python3 -c 'import re,sys,zipfile; m=zipfile.ZipFile(sys.argv[1]).read("META-INF/com/android/metadata").decode(); r=re.search(r"^post-timestamp=(\d+)",m,re.M); print(r.group(1) if r else "",end="")' "$ZIP"
+              fi
+            )"
             [ -n "$OTA_TS" ] || { echo "::error::no post-timestamp in $NAME metadata"; exit 1; }
             VERSION="$(echo "$NAME" | sed -n 's/.*-onyx-\([0-9.]*\)-Unofficial\.zip/\1/p')"
             [ -n "$VERSION" ] || { echo "::error::could not parse version from $NAME"; exit 1; }
