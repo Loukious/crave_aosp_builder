@@ -247,6 +247,11 @@ jobs:
           SF_SSH_KEY: ${{ secrets.SF_SSH_KEY }}
           SF_USER: ${{ secrets.SF_USER }}
           SF_PROJECT: ${{ secrets.SF_PROJECT }}
+          # Push access to Loukious/crdroid_onyx_patches, where the OTA feed
+          # (ota/onyx.json -- the URL the in-ROM Updater fetches) lives.
+          # GITHUB_TOKEN is scoped to this repo only, so it cannot push there.
+          PATCHES_TOKEN: ${{ secrets.PATCHES_TOKEN }}
+          PATCHES_SLUG: ${{ github.repository_owner }}/crdroid_onyx_patches
           # Pinned frs.sourceforge.net host key (ssh-keyscan, 2026-08-30) so
           # strict checking works without TOFU on a shared devspace runner.
           SF_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOQD35Ujalhh+JJkPvMckDlhu4dS7WH6NsOJ15iGCJLC
@@ -296,6 +301,76 @@ jobs:
             echo "uploaded to SourceForge: $SF_URL"
           else
             echo "::warning::SF_SSH_KEY / SF_USER / SF_PROJECT not set -- skipping the SourceForge upload. The release will carry only the checksum; re-upload manually once the secrets exist."
+          fi
+
+          # ---- OTA feed: make the in-ROM Updater offer this build -----------
+          # The Updater app is patched (patches/packages_apps_Updater) to fetch
+          # raw.githubusercontent.com/Loukious/crdroid_onyx_patches/evolution-bka/ota/{device}.json,
+          # so publishing an update is just updating that file. Its parser
+          # (org.evolution.updater.misc.Utils.parseJsonUpdate) getString()s nine
+          # fields and throws on any missing one: timestamp, filename, md5,
+          # size, download, version, maintainer, forum, firmware, paypal --
+          # all of which are filled here. `timestamp` comes from the zip's
+          # own META-INF/com/android/metadata post-timestamp (= ro.build.date.utc),
+          # which is exactly what Utils.isCompatible() compares against, so the
+          # new build is guaranteed to sort as newer than any previous one.
+          # CrDroid's OTA feed is the same pattern: LineageOS-style JSON whose
+          # download URLs point at SourceForge /download links.
+          if [ -n "${SF_URL:-}" ] && [ -n "${PATCHES_TOKEN:-}" ]; then
+            OTA_TS="$(unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p')"
+            [ -n "$OTA_TS" ] || { echo "::error::no post-timestamp in $NAME metadata"; exit 1; }
+            VERSION="$(echo "$NAME" | sed -n 's/.*-onyx-\([0-9.]*\)-Unofficial\.zip/\1/p')"
+            [ -n "$VERSION" ] || { echo "::error::could not parse version from $NAME"; exit 1; }
+            SIZE_BYTES="$(stat -c %s "$ZIP")"
+
+            OTA="$(mktemp --suffix=.json)"
+            cat > "$OTA" <<EOF
+          {
+            "response": [
+              {
+                "maintainer": "Loukious",
+                "oem": "Xiaomi",
+                "device": "POCO F7",
+                "filename": "$NAME",
+                "download": "$SF_URL",
+                "timestamp": $OTA_TS,
+                "md5": "$(md5sum "$ZIP" | cut -d' ' -f1)",
+                "sha256": "$SHA256",
+                "size": $SIZE_BYTES,
+                "version": "$VERSION",
+                "buildtype": "userdebug",
+                "forum": "https://github.com/Loukious/crave_aosp_builder/releases",
+                "firmware": "https://sourceforge.net/projects/${SF_PROJECT}/files/",
+                "paypal": "",
+                "github": "Loukious"
+              }
+            ]
+          }
+          EOF
+
+            # Feed-repo push: shallow clone just the ota/ file's branch, swap
+            # the file, push. --depth 1 keeps the devspace footprint tiny.
+            OTA_REPO="$(mktemp -d)"
+            if git clone -q --depth 1 -b evolution-bka \
+                 "https://${GITHUB_ACTOR}:${PATCHES_TOKEN}@github.com/${PATCHES_SLUG}.git" \
+                 "$OTA_REPO"; then
+              cp "$OTA" "$OTA_REPO/ota/onyx.json"
+              git -C "$OTA_REPO" -c user.name="onyx-ci" -c user.email="ci@users.noreply.github.com" \
+                commit -qam "ota: onyx build $(date -u +%Y-%m-%d) ($VERSION)" -- ota/onyx.json
+              if git -C "$OTA_REPO" push -q origin evolution-bka 2>/dev/null; then
+                echo "OTA feed updated: https://raw.githubusercontent.com/${PATCHES_SLUG}/evolution-bka/ota/onyx.json"
+              else
+                # A concurrent publish raced us to the feed. Rebase and retry once.
+                git -C "$OTA_REPO" pull -q --rebase origin evolution-bka 2>/dev/null || true
+                git -C "$OTA_REPO" push -q origin evolution-bka \
+                  || echo "::warning::OTA feed push failed (race or permissions) -- update ota/onyx.json manually"
+              fi
+            else
+              echo "::warning::could not clone ${PATCHES_SLUG} -- OTA feed not updated"
+            fi
+            rm -rf "$OTA_REPO" "$OTA"
+          else
+            echo "::warning::SF_URL or PATCHES_TOKEN unavailable -- OTA feed not updated. Set the PATCHES_TOKEN secret (repo+workflow scoped PAT) to enable."
           fi
 
           # ---- GitHub release: checksum + link, never the 4.7 GB zip ------
