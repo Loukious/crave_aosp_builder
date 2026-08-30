@@ -1,5 +1,6 @@
 #
-# crDroid 16.0 for onyx (POCO F7), built on foss.crave.io.
+# Evolution X 16.0 (bka) for onyx (POCO F7), built on foss.crave.io.
+# (Historical name: this file started life as the crDroid 16.0 workflow.)
 #
 # Design notes, because several of these are load-bearing:
 #
@@ -25,7 +26,7 @@
 #
 # Rules: https://github.com/FOSSonTop/crave/blob/master/rules.md
 #
-name: crDroid 16.0 - onyx
+name: Evolution X 16.0 - onyx
 
 on:
   workflow_dispatch:
@@ -43,7 +44,7 @@ on:
         type: string
         default: ''
       publish:
-        description: 'Publish the zip as a GitHub release'
+        description: 'Publish a GitHub release (checksum + SourceForge link)'
         type: boolean
         default: true
   schedule:
@@ -238,6 +239,17 @@ jobs:
         if: ${{ inputs.sync_only != true && inputs.publish != false }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # SourceForge hosting for the ROM zip. GitHub release assets are
+          # capped at 2 GiB and this zip is ~4.7 GB, so the zip itself can
+          # never live on GitHub -- the GitHub release carries only the
+          # checksum and a link. Secrets: SF_SSH_KEY (private OpenSSH key),
+          # SF_USER (SourceForge username), SF_PROJECT (project unix name).
+          SF_SSH_KEY: ${{ secrets.SF_SSH_KEY }}
+          SF_USER: ${{ secrets.SF_USER }}
+          SF_PROJECT: ${{ secrets.SF_PROJECT }}
+          # Pinned frs.sourceforge.net host key (ssh-keyscan, 2026-08-30) so
+          # strict checking works without TOFU on a shared devspace runner.
+          SF_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOQD35Ujalhh+JJkPvMckDlhu4dS7WH6NsOJ15iGCJLC
           ZIP: ${{ steps.pull.outputs.zip }}
           NAME: ${{ steps.pull.outputs.name }}
         run: |
@@ -245,23 +257,77 @@ jobs:
           GH="$HOME/bin/gh"
           command -v gh >/dev/null 2>&1 && GH=gh
           TAG="onyx-$(date -u +%Y%m%d)-${{ github.run_number }}"
+          SIZE="$(du -h "$ZIP" | cut -f1)"
+          SHA256="$(cut -d' ' -f1 < "$ZIP.sha256")"
+
+          # ---- SourceForge upload ------------------------------------------
+          # The runner lives in the devspace, which is shared infrastructure:
+          # the key is written to a temp file and removed in the same step, and
+          # is never placed anywhere the build servers can see.
+          SF_URL=""
+          if [ -n "${SF_SSH_KEY:-}" ] && [ -n "${SF_USER:-}" ] && [ -n "${SF_PROJECT:-}" ]; then
+            KEY="$(mktemp)"
+            printf '%s\n' "$SF_SSH_KEY" > "$KEY"
+            chmod 600 "$KEY"
+            KHOSTS="$(mktemp)"
+            printf 'frs.sourceforge.net %s\n' "$SF_HOST_KEY" > "$KHOSTS"
+            SFDEST="/home/frs/project/${SF_PROJECT}"
+            if command -v sftp >/dev/null 2>&1; then
+              printf 'mkdir "%s"\nput "%s" "%s/%s"\n' \
+                "$SFDEST" "$ZIP" "$SFDEST" "$NAME" > /tmp/sf_batch
+              # mkdir of an existing dir is not an error to the SF shell; if
+              # the batch fails there, retry without the mkdir.
+              sftp -b /tmp/sf_batch -o UserKnownHostsFile="$KHOSTS" \
+                   -i "$KEY" "${SF_USER}@frs.sourceforge.net" \
+                || { printf 'put "%s" "%s/%s"\n' "$ZIP" "$SFDEST" "$NAME" > /tmp/sf_batch
+                     sftp -b /tmp/sf_batch -o UserKnownHostsFile="$KHOSTS" \
+                          -i "$KEY" "${SF_USER}@frs.sourceforge.net"; }
+              rm -f /tmp/sf_batch
+            elif command -v scp >/dev/null 2>&1; then
+              scp -o UserKnownHostsFile="$KHOSTS" -i "$KEY" \
+                  "$ZIP" "${SF_USER}@frs.sourceforge.net:${SFDEST}/${NAME}"
+            else
+              echo "::error::neither sftp nor scp on the runner"
+              rm -f "$KEY" "$KHOSTS"
+              exit 1
+            fi
+            rm -f "$KEY" "$KHOSTS"
+            SF_URL="https://sourceforge.net/projects/${SF_PROJECT}/files/${NAME}/download"
+            echo "uploaded to SourceForge: $SF_URL"
+          else
+            echo "::warning::SF_SSH_KEY / SF_USER / SF_PROJECT not set -- skipping the SourceForge upload. The release will carry only the checksum; re-upload manually once the secrets exist."
+          fi
+
+          # ---- GitHub release: checksum + link, never the 4.7 GB zip ------
+          NOTES="$(mktemp)"
+          cat > "$NOTES" <<EOF
+          Unofficial Evolution X 16.0 (Android 16, \`bka\`) for onyx (POCO F7). Built by Loukious.
+          Not an official Evolution X release and not eligible for Evolution X support.
+
+          LHDC A2DP codec, gesture navigation space, Google AI Wallpapers fix,
+          Pixel lockscreen Now Playing, Kono-Ha GKI kernel with KernelSU Next
+          (charging bypass off), OS3.0.302.0 firmware.
+
+          ### Download
+
+          - \`${NAME}\` (${SIZE}) -- hosted on SourceForge (GitHub caps release assets at 2 GiB):
+            $SF_URL
+          - sha256: \`${SHA256}\`
+          - Checksum only is attached here; the zip is too large for a GitHub asset.
+
+          Built from Evolution X \`bka\` HEAD by [run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          EOF
 
           "$GH" release create "$TAG" \
             --repo "${{ github.repository }}" \
-            --title "crDroid 16.0 - onyx - $(date -u +%Y-%m-%d)" \
-            --notes "Unofficial crDroid 16.0 for onyx (POCO F7). Built by Loukious.
-          Not an official crDroid release and not eligible for crDroid support.
-
-          PixelOS GApps and Launcher, LHDC A2DP codec, gesture navigation space,
-          Google AI Wallpapers fix, Pixel lockscreen Now Playing, Kono-Ha GKI
-          kernel with KernelSU Next (charging bypass off), OS3.0.302.0 firmware.
-
-          Built from crDroid 16.0 HEAD by [run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." \
+            --title "Evolution X 16.0 - onyx - $(date -u +%Y-%m-%d)" \
+            --notes-file "$NOTES" \
             || echo "release $TAG already exists, uploading into it"
+          rm -f "$NOTES"
 
           "$GH" release upload "$TAG" \
             --repo "${{ github.repository }}" --clobber \
-            "$ZIP" "$ZIP.sha256"
+            "$ZIP.sha256"
 
       # "Be mindful of Devspace CLI Storage. Clean up your .zip and .img build
       # artefacts if you're used to pulling them to devspace" -- crave rules.
