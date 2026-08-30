@@ -215,9 +215,9 @@ jobs:
           OUT="$RUNNER_TEMP/artifacts"
           rm -rf "$OUT"; mkdir -p "$OUT"
 
-          crave -n pull --destination "$OUT" "out/target/product/$DEVICE/crDroidAndroid-*.zip"
+          crave -n pull --destination "$OUT" "out/target/product/$DEVICE/EvolutionX-*.zip"
 
-          ZIP="$(find "$OUT" -type f -name 'crDroidAndroid-*.zip' | sort | tail -1)"
+          ZIP="$(find "$OUT" -type f -name 'EvolutionX-*.zip' | sort | tail -1)"
           if [ -z "$ZIP" ]; then
             echo "::error::crave pull produced no zip"
             find "$OUT" -type f | head -50
