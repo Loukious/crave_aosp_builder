@@ -269,6 +269,22 @@ jobs:
           SIZE="$(du -h "$ZIP" | cut -f1)"
           SHA256="$(cut -d' ' -f1 < "$ZIP.sha256")"
 
+          # ---- FileDitch upload (primary OTA host) -------------------------
+          # Runs concurrently with the SourceForge sftp below: both only read
+          # the zip. FileDitch serves the same file at ~12.5 MB/s vs ~7.4 MB/s
+          # for the fastest SourceForge mirror, but its download links are
+          # minted per-visitor through a browser proof-of-work challenge and
+          # expire in minutes -- so the feed points at the *landing* URL and
+          # the in-ROM Updater (FileDitchResolver.java) solves the challenge
+          # on-device right before downloading. SourceForge stays the
+          # permanent archive and the fallback mirror ("download_sf").
+          # No auth needed; unattended files are deleted after ~45 days.
+          FD_UPLOAD_LOG="$(mktemp)"
+          ( curl -fsS --retry 2 --connect-timeout 30 \
+              -F "file=@${ZIP}" https://new.fileditch.com/upload.php \
+              > "$FD_UPLOAD_LOG" 2>&1 ) &
+          FD_PID=$!
+
           # ---- SourceForge upload ------------------------------------------
           # The runner lives in the devspace, which is shared infrastructure:
           # the key is written to a temp file and removed in the same step, and
@@ -307,6 +323,13 @@ jobs:
             echo "::warning::SF_SSH_KEY / SF_USER / SF_PROJECT not set -- skipping the SourceForge upload. The release will carry only the checksum; re-upload manually once the secrets exist."
           fi
 
+          wait "$FD_PID" || echo "::warning::FileDitch upload failed -- OTA will use SourceForge"
+          FD_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("url",""))' "$FD_UPLOAD_LOG" 2>/dev/null || true)"
+          rm -f "$FD_UPLOAD_LOG"
+          if [ -n "$FD_URL" ]; then
+            echo "uploaded to FileDitch: $FD_URL"
+          fi
+
           # ---- OTA feed: make the in-ROM Updater offer this build -----------
           # The Updater app is patched (patches/packages_apps_Updater) to fetch
           # raw.githubusercontent.com/Loukious/crdroid_onyx_patches/evolution-bka/ota/{device}.json,
@@ -319,8 +342,18 @@ jobs:
           # which is exactly what Utils.isCompatible() compares against, so the
           # new build is guaranteed to sort as newer than any previous one.
           # CrDroid's OTA feed is the same pattern: LineageOS-style JSON whose
-          # download URLs point at SourceForge /download links.
-          if [ -n "${SF_URL:-}" ] && [ -n "${PATCHES_TOKEN:-}" ]; then
+          # download URLs point at the FileDitch landing page (the patched
+          # Updater solves its PoW challenge on-device) with SourceForge as
+          # the "download_sf" fallback mirror.
+          if [ -n "${FD_URL:-}${SF_URL:-}" ] && [ -n "${PATCHES_TOKEN:-}" ]; then
+            # Primary: the FileDitch landing URL (Updater solves the PoW and
+            # downloads at full speed). Fallback: the SourceForge mirror, via
+            # the optional "download_sf" field the patched Updater reads.
+            FEED_DOWNLOAD="${FD_URL:-$SF_URL}"
+            DOWNLOAD_SF_LINE=""
+            if [ -n "$SF_URL" ] && [ "$SF_URL" != "$FEED_DOWNLOAD" ]; then
+              DOWNLOAD_SF_LINE="\"download_sf\": \"$SF_URL\","
+            fi
             # post-timestamp: prefer unzip, fall back to python's zipfile --
             # the devspace runner is not guaranteed to have unzip installed.
             OTA_TS="$(
@@ -344,7 +377,8 @@ jobs:
                 "oem": "Xiaomi",
                 "device": "POCO F7",
                 "filename": "$NAME",
-                "download": "$SF_URL",
+                "download": "$FEED_DOWNLOAD",
+                ${DOWNLOAD_SF_LINE}
                 "timestamp": $OTA_TS,
                 "md5": "$(md5sum "$ZIP" | cut -d' ' -f1)",
                 "sha256": "$SHA256",
@@ -382,7 +416,7 @@ jobs:
             fi
             rm -rf "$OTA_REPO" "$OTA"
           else
-            echo "::warning::SF_URL or PATCHES_TOKEN unavailable -- OTA feed not updated. Set the PATCHES_TOKEN secret (repo+workflow scoped PAT) to enable."
+            echo "::warning::neither FileDitch nor SourceForge upload produced a URL -- OTA feed not updated. Set the PATCHES_TOKEN secret (repo+workflow scoped PAT) to enable."
           fi
 
           # ---- GitHub release: checksum + link, never the 4.7 GB zip ------
@@ -397,10 +431,11 @@ jobs:
 
           ### Download
 
-          - \`${NAME}\` (${SIZE}) -- hosted on SourceForge (GitHub caps release assets at 2 GiB):
+          - \`${NAME}\` (${SIZE}) -- fast mirror (FileDitch; open in a browser):
+            ${FD_URL:-$SF_URL}
+          - Permanent archive on SourceForge (GitHub caps release assets at 2 GiB):
             $SF_URL
           - sha256: \`${SHA256}\`
-          - Checksum only is attached here; the zip is too large for a GitHub asset.
 
           Built from Evolution X \`bka\` HEAD by [run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
           EOF
