@@ -255,6 +255,10 @@ jobs:
           # Pinned frs.sourceforge.net host key (ssh-keyscan, 2026-08-30) so
           # strict checking works without TOFU on a shared devspace runner.
           SF_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOQD35Ujalhh+JJkPvMckDlhu4dS7WH6NsOJ15iGCJLC
+          # Mirror pinned in the feed URL: auto-selection routed to
+          # "unlimited" at ~5 MB/s here; "versatile" benchmarked ~7.4 MB/s
+          # (20 MB range probes, 2026-08-31). Override per region if needed.
+          SF_MIRROR: versatile
           ZIP: ${{ steps.pull.outputs.zip }}
           NAME: ${{ steps.pull.outputs.name }}
         run: |
@@ -297,7 +301,7 @@ jobs:
               exit 1
             fi
             rm -f "$KEY" "$KHOSTS"
-            SF_URL="https://sourceforge.net/projects/${SF_PROJECT}/files/${NAME}/download"
+            SF_URL="https://sourceforge.net/projects/${SF_PROJECT}/files/${NAME}/download?use_mirror=${SF_MIRROR}"
             echo "uploaded to SourceForge: $SF_URL"
           else
             echo "::warning::SF_SSH_KEY / SF_USER / SF_PROJECT not set -- skipping the SourceForge upload. The release will carry only the checksum; re-upload manually once the secrets exist."
