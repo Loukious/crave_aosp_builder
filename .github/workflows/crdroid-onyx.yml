@@ -364,7 +364,7 @@ jobs:
                  "$OTA_REPO"; then
               cp "$OTA" "$OTA_REPO/ota/onyx.json"
               git -C "$OTA_REPO" -c user.name="onyx-ci" -c user.email="ci@users.noreply.github.com" \
-                commit -qam "ota: onyx build $(date -u +%Y-%m-%d) ($VERSION)" -- ota/onyx.json
+                commit -qm "ota: onyx build $(date -u +%Y-%m-%d) ($VERSION)" -- ota/onyx.json
               if git -C "$OTA_REPO" push -q origin evolution-bka 2>/dev/null; then
                 echo "OTA feed updated: https://raw.githubusercontent.com/${PATCHES_SLUG}/evolution-bka/ota/onyx.json"
               else
