@@ -50,7 +50,7 @@ on:
       feed_primary:
         description: 'OTA feed download URL: fd = FileDitch landing (needs the Updater with FileDitchResolver installed!), sf = SourceForge direct'
         type: choice
-        default: 'sf'
+        default: 'fd'
         options:
           - 'sf'
           - 'fd'
@@ -356,10 +356,13 @@ jobs:
             # Primary feed URL. IMPORTANT: the *installed* Updater performs
             # the download, so "fd" only works on phones already running a
             # ROM whose Updater has FileDitchResolver -- an FD landing URL in
-            # an older Updater fails the download. Keep "sf" until the first
-            # new-Updater build is flashed, then flip to "fd" (SF stays in
-            # "download_sf" either way the resolver is present).
-            FEED_PRIMARY='${{ inputs.feed_primary || 'sf' }}'
+            # an older Updater fails the download. Default is "fd" (decided
+            # 2026-08-31): every phone this feed serves gets the first
+            # resolver-Updater build flashed/sideloaded manually once, and
+            # SF stays in "download_sf" as the fallback either way. Dispatch
+            # with feed_primary=sf only for an interim build aimed at a
+            # phone still on the old Updater.
+            FEED_PRIMARY='${{ inputs.feed_primary || 'fd' }}'
             if [ "$FEED_PRIMARY" = "fd" ] && [ -n "$FD_URL" ]; then
               FEED_DOWNLOAD="$FD_URL"
             else
