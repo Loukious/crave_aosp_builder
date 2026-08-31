@@ -47,6 +47,13 @@ on:
         description: 'Publish a GitHub release (checksum + SourceForge link)'
         type: boolean
         default: true
+      feed_primary:
+        description: 'OTA feed download URL: fd = FileDitch landing (needs the Updater with FileDitchResolver installed!), sf = SourceForge direct'
+        type: choice
+        default: 'sf'
+        options:
+          - 'sf'
+          - 'fd'
   schedule:
     # Saturday 03:17 UTC. Deliberately off the hour: on-the-hour crons all
     # arrive in the crave queue at once.
@@ -346,10 +353,18 @@ jobs:
           # Updater solves its PoW challenge on-device) with SourceForge as
           # the "download_sf" fallback mirror.
           if [ -n "${FD_URL:-}${SF_URL:-}" ] && [ -n "${PATCHES_TOKEN:-}" ]; then
-            # Primary: the FileDitch landing URL (Updater solves the PoW and
-            # downloads at full speed). Fallback: the SourceForge mirror, via
-            # the optional "download_sf" field the patched Updater reads.
-            FEED_DOWNLOAD="${FD_URL:-$SF_URL}"
+            # Primary feed URL. IMPORTANT: the *installed* Updater performs
+            # the download, so "fd" only works on phones already running a
+            # ROM whose Updater has FileDitchResolver -- an FD landing URL in
+            # an older Updater fails the download. Keep "sf" until the first
+            # new-Updater build is flashed, then flip to "fd" (SF stays in
+            # "download_sf" either way the resolver is present).
+            FEED_PRIMARY='${{ inputs.feed_primary || "sf" }}'
+            if [ "$FEED_PRIMARY" = "fd" ] && [ -n "$FD_URL" ]; then
+              FEED_DOWNLOAD="$FD_URL"
+            else
+              FEED_DOWNLOAD="$SF_URL"
+            fi
             DOWNLOAD_SF_LINE=""
             if [ -n "$SF_URL" ] && [ "$SF_URL" != "$FEED_DOWNLOAD" ]; then
               DOWNLOAD_SF_LINE="\"download_sf\": \"$SF_URL\","
