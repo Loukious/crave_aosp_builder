@@ -359,7 +359,7 @@ jobs:
             # an older Updater fails the download. Keep "sf" until the first
             # new-Updater build is flashed, then flip to "fd" (SF stays in
             # "download_sf" either way the resolver is present).
-            FEED_PRIMARY='${{ inputs.feed_primary || "sf" }}'
+            FEED_PRIMARY='${{ inputs.feed_primary || 'sf' }}'
             if [ "$FEED_PRIMARY" = "fd" ] && [ -n "$FD_URL" ]; then
               FEED_DOWNLOAD="$FD_URL"
             else
