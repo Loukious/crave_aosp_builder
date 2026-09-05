@@ -26,7 +26,7 @@
 #
 # Rules: https://github.com/FOSSonTop/crave/blob/master/rules.md
 #
-name: Evolution X 16.0 - onyx
+name: Evolution X onyx
 
 on:
   workflow_dispatch:

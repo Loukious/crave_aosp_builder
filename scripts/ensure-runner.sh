@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Runs INSIDE the crave devspace, invoked by the `wake` job of
-# .github/workflows/crdroid-onyx.yml as:
+# .github/workflows/evolution-onyx.yml as:
 #
 #   crave devspace -- "curl -fsSL .../scripts/ensure-runner.sh | bash"
 #
