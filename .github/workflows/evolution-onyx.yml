@@ -284,22 +284,6 @@ jobs:
           SIZE="$(du -h "$ZIP" | cut -f1)"
           SHA256="$(cut -d' ' -f1 < "$ZIP.sha256")"
 
-          # ---- FileDitch upload (primary OTA host) -------------------------
-          # Runs concurrently with the SourceForge sftp below: both only read
-          # the zip. FileDitch serves the same file at ~12.5 MB/s vs ~7.4 MB/s
-          # for the fastest SourceForge mirror, but its download links are
-          # minted per-visitor through a browser proof-of-work challenge and
-          # expire in minutes -- so the feed points at the *landing* URL and
-          # the in-ROM Updater (FileDitchResolver.java) solves the challenge
-          # on-device right before downloading. SourceForge stays the
-          # permanent archive and the fallback mirror ("download_sf").
-          # No auth needed; unattended files are deleted after ~45 days.
-          FD_UPLOAD_LOG="$(mktemp)"
-          ( curl -fsS --retry 2 --connect-timeout 30 \
-              -F "file=@${ZIP}" https://new.fileditch.com/upload.php \
-              > "$FD_UPLOAD_LOG" 2>&1 ) &
-          FD_PID=$!
-
           # ---- SourceForge upload ------------------------------------------
           # The runner lives in the devspace, which is shared infrastructure:
           # the key is written to a temp file and removed in the same step, and
@@ -338,7 +322,40 @@ jobs:
             echo "::warning::SF_SSH_KEY / SF_USER / SF_PROJECT not set -- skipping the SourceForge upload. The release will carry only the checksum; re-upload manually once the secrets exist."
           fi
 
-          wait "$FD_PID" || echo "::warning::FileDitch upload failed -- OTA will use SourceForge"
+          # ---- FileDitch upload (primary OTA host) -------------------------
+          # Runs *after* SourceForge, not concurrently: both push the same
+          # multi-GB zip, and sharing one uplink starved this transfer badly
+          # enough that the server closed it (FileDitch reports that as
+          # "400 - incomplete upload (connection closed early)").
+          #
+          # Raw PUT rather than multipart (-F): the API documents raw as the
+          # fastest method with no duration limit, while multipart must size
+          # the whole body up front and is cut off after 6 hours. The upload
+          # name comes from ?filename=, which takes precedence over every
+          # other filename source.
+          #
+          # --fail-with-body, not -f: -f suppresses the response body, which
+          # is exactly where FileDitch puts {"error":"..."} - the one thing
+          # that says why a failure happened. Older curl lacks the option, so
+          # fall back to -f rather than dying on an unknown flag. The log is
+          # printed on failure; previously it was deleted unread, which is
+          # why every failure looked the same from the outside.
+          #
+          # SourceForge stays the permanent archive and the fallback mirror
+          # ("download_sf"). No auth needed.
+          FD_FAIL_OPT=--fail-with-body
+          curl --help all 2>/dev/null | grep -q -- '--fail-with-body' || FD_FAIL_OPT=-f
+          FD_UPLOAD_LOG="$(mktemp)"
+          if curl -sS "$FD_FAIL_OPT" --retry 2 --connect-timeout 30 \
+               -T "$ZIP" "https://new.fileditch.com/upload.php?filename=${NAME}" \
+               > "$FD_UPLOAD_LOG" 2>&1; then
+            :
+          else
+            echo "::warning::FileDitch upload failed -- OTA will use SourceForge"
+            echo "--- curl output ---"
+            cat "$FD_UPLOAD_LOG"
+            echo "-------------------"
+          fi
           FD_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("url",""))' "$FD_UPLOAD_LOG" 2>/dev/null || true)"
           rm -f "$FD_UPLOAD_LOG"
           if [ -n "$FD_URL" ]; then
