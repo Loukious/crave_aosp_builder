@@ -71,15 +71,23 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CRAVE_PROJECT_ID: '93'
-  # Must match the project name on the crave dashboard exactly. It is
-  # "LOS 22.1" -- upstream's crave.yaml template says "LOS 22", which silently
-  # no-ops and loses workspace persistence.
-  CRAVE_PROJECT_NAME: 'LOS 22.1'
+  # Base project LOS 23.2 (A16, accupara/los23.2.git) since 2026-09-15.
+  # Switched from LOS 22.1 (project 93) after that workspace's prebuilts
+  # degraded across the Sep 14 broken syncs: soong's bindgen died on a
+  # missing stdbool.h inside clang-r584948 while the same prebuilt works in
+  # a locally synced tree. A new project = a fresh, untouched persistent
+  # build-server workspace; the ROM itself comes from the Evolution-X cnb
+  # manifest, so the base only picks the container.
+  CRAVE_PROJECT_ID: '99'
+  # Must match the project name on the crave dashboard exactly.
+  # Upstream's crave.yaml template says "LOS 22" for 22.1 and silently
+  # no-ops, losing workspace persistence -- same trap here with "LOS 23".
+  CRAVE_PROJECT_NAME: 'LOS 23.2'
   # Workspace persistence on crave keys on (project UUID, user ID, this
-  # directory name, hostname signature). So this path must never change, and
+  # directory name, hostname signature). This path must never change for a
+  # given project; it moved together with the project switch above, and
   # ignoreClientHostname below neutralises the hostname factor.
-  PROJECTFOLDER: /crave-devspaces/Lineage22
+  PROJECTFOLDER: /crave-devspaces/Lineage23_2
   DEVICE: onyx
   PATCHES_REPO: https://github.com/Loukious/crdroid_onyx_patches
   # Weekly + default = evolution-cnb (A17) since 2026-09-05 -- the A16/bka
@@ -158,7 +166,7 @@ jobs:
           git config --global --get user.name >/dev/null 2>&1 || \
             git config --global user.name "${{ github.repository_owner }}"
           if [ ! -d .repo/manifests.git ]; then
-            repo init -u https://github.com/accupara/los22.git -b lineage-22.1 \
+            repo init -u https://github.com/accupara/los23.2.git -b lineage-23.2 \
                       --git-lfs --depth 1
           fi
 
