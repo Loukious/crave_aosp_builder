@@ -35,6 +35,10 @@ on:
         description: 'Sync + patch + breakfast only, no compile'
         type: boolean
         default: false
+      pull_only:
+        description: 'Recovery: skip preflight+build, pull the zip already sitting in the build workspace and publish it'
+        type: boolean
+        default: false
       clean:
         description: 'Clean build - only with a real reason (crave rules)'
         type: boolean
@@ -179,6 +183,7 @@ jobs:
           cat .repo/manifests/crave.yaml
 
       - name: Preflight the patch set before spending queue time
+        if: ${{ inputs.pull_only != true }}
         env:
           KERNEL_RELEASE_TAG: ${{ inputs.kernel_release_tag }}
         run: |
@@ -203,6 +208,7 @@ jobs:
           rm -rf /tmp/onyx-preflight
 
       - name: Sync, patch and build through crave run
+        if: ${{ inputs.pull_only != true }}
         env:
           SYNC_ONLY: ${{ inputs.sync_only == true && '1' || '0' }}
           KERNEL_RELEASE_TAG: ${{ inputs.kernel_release_tag }}
@@ -227,7 +233,15 @@ jobs:
           REMOTE="$REMOTE bash /tmp/onyx-ci/ci/crave-build.sh"
 
           echo "remote command: $REMOTE"
-          crave -n run --projectID "$CRAVE_PROJECT_ID" --no-patch --no-artifacts $CLEAN -- "$REMOTE"
+          # --disable-build-cache: crave's compiler cache is ccache-backed and
+          # using it is against crave's rules, so turn it off explicitly rather
+          # than leaving it to whatever the assigned node happens to have. It is
+          # also what puts "Error: ccache not found. Please install ccache." in
+          # every build log -- the probe fires at breakfast and the build carries
+          # on past it, which means the cache has not actually been in use here,
+          # so switching it off costs nothing that was ever being spent.
+          crave -n run --projectID "$CRAVE_PROJECT_ID" --no-patch --no-artifacts \
+            --disable-build-cache $CLEAN -- "$REMOTE"
 
       - name: Pull the zip off the build server
         if: ${{ inputs.sync_only != true }}
@@ -239,7 +253,16 @@ jobs:
           OUT="$RUNNER_TEMP/artifacts"
           rm -rf "$OUT"; mkdir -p "$OUT"
 
-          crave -n pull --destination "$OUT" "out/target/product/$DEVICE/EvolutionX-*.zip"
+          # The project has to be named. Left to itself crave guesses it from the
+          # workspace's manifest git URL, and that guess stopped resolving when
+          # the base project moved to LOS 23.2 (id 99) on 2026-09-15: run
+          # 35554489685 died here with "could not find matching projects for
+          # https://github.com/accupara/los23.2.git" / "Please specify project
+          # id". The build step above has always passed --projectID; this one did
+          # not. It went unnoticed because the build step failed first on every
+          # run from Sep 16, so this step never executed until Sep 21.
+          crave -n pull --projectID "$CRAVE_PROJECT_ID" --destination "$OUT" \
+            "out/target/product/$DEVICE/EvolutionX-*.zip"
 
           ZIP="$(find "$OUT" -type f -name 'EvolutionX-*.zip' | sort | tail -1)"
           if [ -z "$ZIP" ]; then
