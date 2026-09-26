@@ -17,17 +17,14 @@ on:
         type: choice
         options:
           - 'LineageOS 20.0'
-          - 'LineageOS 21.0'
           - 'LineageOS 22.1'
-          - 'ArrowOS 13.1'
+          - 'LineageOS 23.2'
           - 'DerpFest 14.0'
           - 'CipherOS 14'
           - 'PixelOS 15'
-          - 'RisingOS 15 Revived'
           - 'LineageOS 18.1'
           - 'LineageOS 16.0'
-          - 'CyanogenMOD 14.1'
-          - 'AOSP'
+          - 'CyanogenMOD 12.1'
       BUILD_DIFFERENT_ROM:
         description: "Command to initialize a different 'repo' project:"
         required: false
@@ -142,11 +139,6 @@ jobs:
       id: proj-variables
       run: |
         case "${{ github.event.inputs.BASE_PROJECT }}" in
-        "ArrowOS 13.1")
-          export PROJECTFOLDER="/crave-devspaces/Arrow13"
-          export PROJECTID="73"
-          export REPO_INIT="repo init -u https://github.com/ArrowOS/android_manifest.git -b arrow-13.1 --depth=1"
-        ;;
         "DerpFest 14.0")
           export PROJECTFOLDER="/crave-devspaces/DerpFest14"
           export PROJECTID="64"
@@ -162,25 +154,20 @@ jobs:
           export PROJECTID="93"
           export REPO_INIT="repo init -u https://github.com/accupara/los22.git -b lineage-22.1 --git-lfs --depth=1"
         ;;
-        "LineageOS 20.0")
-          export PROJECTFOLDER="/crave-devspaces/Lineage20"
-          export PROJECTID="36"
-          export REPO_INIT="repo init -u https://github.com/accupara/los20.git -b lineage-20.0 --git-lfs --depth=1"
+        "LineageOS 23.2")
+          export PROJECTFOLDER="/crave-devspaces/Lineage23"
+          export PROJECTID="99"
+          export REPO_INIT="repo init -u https://github.com/accupara/los23.2.git -b lineage-23.2 --git-lfs --depth=1"
         ;;
         "CipherOS 14")
           export PROJECTFOLDER="/crave-devspaces/Cipher14"
           export PROJECTID="79"
           export REPO_INIT="repo init -u https://github.com/CipherOS/android_manifest.git -b fourteen --git-lfs --depth=1"
         ;;
-        "PixelOS 15")
-          export PROJECTFOLDER="/crave-devspaces/Pixel15"
+        "PixelOS 16")
+          export PROJECTFOLDER="/crave-devspaces/Pixel16"
           export PROJECTID="82"
-          export REPO_INIT="repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs --depth=1"
-        ;;
-        "RisingOS 15 Revived")
-          export PROJECTFOLDER="/crave-devspaces/Rising15"
-          export PROJECTID="86"
-          export REPO_INIT="repo init -u https://github.com/RisingOS-Revived/android.git -b fifteen --git-lfs --depth=1"
+          export REPO_INIT="repo init -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs --depth=1"
         ;;
         "LineageOS 18.1")
           export PROJECTFOLDER="/crave-devspaces/Lineage18"
@@ -192,15 +179,10 @@ jobs:
           export PROJECTID="81"
           export REPO_INIT="repo init -u https://github.com/accupara/los16.git -b lineage-16.0 --git-lfs --depth=1"
         ;;
-        "CyanogenMOD 14.1")
-          export PROJECTFOLDER="/crave-devspaces/Cyanogen14"
-          export PROJECTID="83"
-          export REPO_INIT="repo init -u https://github.com/accupara/los-cm14.1.git -b cm-14.1 --git-lfs --depth=1"
-        ;;
-        "AOSP")
-          export PROJECTFOLDER="/crave-devspaces/AOSP"
-          export PROJECTID="35"
-          export REPO_INIT="repo init -u https://android.googlesource.com/platform/manifest.git -b master --git-lfs --depth=1"
+        "CyanogenMOD 12.1")
+          export PROJECTFOLDER="/crave-devspaces/Cyanogen12.1"
+          export PROJECTID="80"
+          export REPO_INIT="repo init -u https://github.com/accupara/los-cm12.1.git -b cm-12.1 --git-lfs --depth=1"
         ;;
         esac
 
