@@ -1,0 +1,47 @@
+name: Publish tested local Onyx OTA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sourceforge-upload:
+    runs-on: [self-hosted, Linux, X64, onyx-ota-local-20261019]
+    timeout-minutes: 240
+    env:
+      ZIP: /home/loukious/Android/custom-rom/out/target/product/onyx/EvolutionX-17.0-20261019-onyx-12.3-Unofficial.zip
+      ROM_NAME: EvolutionX-17.0-20261019-onyx-12.3-Unofficial.zip
+    steps:
+      - name: Verify exact flashed package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(stat -c '%s' "$ZIP")" = 5079612494
+          echo 'd72e285a377493e256dc29689e1b8a22e85e4c405c6d0535024423fd92384af4  '"$ZIP" | sha256sum -c -
+          test "$(unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p')" = 1792387866
+      - name: Upload verified package to SourceForge
+        shell: bash
+        env:
+          SF_SSH_KEY: ${{ secrets.SF_SSH_KEY }}
+          SF_USER: ${{ secrets.SF_USER }}
+          SF_PROJECT: ${{ secrets.SF_PROJECT }}
+        run: |
+          set -euo pipefail
+          test -n "$SF_SSH_KEY"
+          test -n "$SF_USER"
+          test "$SF_PROJECT" = onyx-evox-loukious
+          umask 077
+          KEY="$(mktemp)"
+          HOSTS="$(mktemp)"
+          BATCH="$(mktemp)"
+          trap 'rm -f "$KEY" "$HOSTS" "$BATCH"' EXIT
+          printf '%s\n' "$SF_SSH_KEY" > "$KEY"
+          printf '%s\n' 'frs.sourceforge.net ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOQD35Ujalhh+JJkPvMckDlhu4dS7WH6NsOJ15iGCJLC' > "$HOSTS"
+          DEST="/home/frs/project/$SF_PROJECT/$ROM_NAME"
+          printf 'put "%s" "%s"\n' "$ZIP" "$DEST" > "$BATCH"
+          sftp -b "$BATCH" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOSTS" -o ConnectTimeout=25 -o ServerAliveInterval=30 -i "$KEY" "$SF_USER@frs.sourceforge.net"
+          printf 'ls -l "%s"\n' "$DEST" > "$BATCH"
+          sftp -b "$BATCH" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOSTS" -o ConnectTimeout=25 -i "$KEY" "$SF_USER@frs.sourceforge.net"
+          echo "SourceForge upload complete: https://sourceforge.net/projects/$SF_PROJECT/files/$ROM_NAME/download"
