@@ -44,13 +44,13 @@ on:
         type: boolean
         default: false
       kernel_release_tag:
-        description: 'konoha-kernel-gki release tag (blank = latest)'
+        description: 'Legacy 6.6 builds only: kernel release tag (unused by the 6.18 prebuilt manifest)'
         type: string
         default: ''
       patches_branch:
-        description: 'crdroid_onyx_patches branch: evolution-cnb (A17, weekly default) or evolution-bka (frozen A16)'
+        description: 'Patch branch: evolution-cnb-konoha618 (A17 matched prebuilts) or evolution-bka (frozen A16)'
         type: string
-        default: 'evolution-cnb'
+        default: 'evolution-cnb-konoha618'
       publish:
         description: 'Publish a GitHub release (checksum + SourceForge link)'
         type: boolean
@@ -87,11 +87,11 @@ env:
   PROJECTFOLDER: /crave-devspaces/Lineage23_2
   DEVICE: onyx
   PATCHES_REPO: https://github.com/Loukious/crdroid_onyx_patches
-  # Weekly + default = evolution-cnb (A17) since 2026-09-05 -- the A16/bka
+  # Weekly + default = evolution-cnb-konoha618 (A17 prebuilts); the A16/bka
   # stack is frozen; dispatch with patches_branch=evolution-bka to build it.
   # The OTA feed push follows this variable too, so each branch's builds
   # land in its own ota/onyx.json.
-  PATCHES_BRANCH: ${{ inputs.patches_branch || 'evolution-cnb' }}
+  PATCHES_BRANCH: ${{ inputs.patches_branch || 'evolution-cnb-konoha618' }}
 
 jobs:
   wake:
@@ -422,6 +422,8 @@ jobs:
             # Follows PATCHES_BRANCH so A17 (cnb) builds update the cnb feed
             # and A16 (bka) dispatches update the bka feed -- never mixed.
             FEED_BRANCH="${PATCHES_BRANCH}"
+            # Preserve the OTA channel already embedded in installed A17 ROMs.
+            if [ "$FEED_BRANCH" = evolution-cnb-konoha618 ]; then FEED_BRANCH=evolution-cnb; fi
             OTA_REPO="$(mktemp -d)"
             if git clone -q --depth 1 -b "$FEED_BRANCH" \
                  "https://${GITHUB_ACTOR}:${PATCHES_TOKEN}@github.com/${PATCHES_SLUG}.git" \
