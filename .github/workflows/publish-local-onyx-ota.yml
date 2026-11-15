@@ -6,21 +6,47 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: crave-build
+  cancel-in-progress: false
+
 jobs:
   sourceforge-upload:
     runs-on: [self-hosted, Linux, X64, onyx-ota-local-20261019]
     timeout-minutes: 240
     env:
-      ZIP: /home/loukious/Android/custom-rom/out/target/product/onyx/EvolutionX-17.0-20261113-onyx-12.4-Unofficial.zip
-      ROM_NAME: EvolutionX-17.0-20261113-onyx-12.4-Unofficial.zip
+      ZIP: /home/loukious/Android/custom-rom/out/target/product/onyx/EvolutionX-17.0-20261115-onyx-12.4-Unofficial.zip
+      ROM_NAME: EvolutionX-17.0-20261115-onyx-12.4-Unofficial.zip
     steps:
       - name: Verify exact completed package
         shell: bash
+        env:
+          PATCHES_TOKEN: ${{ secrets.PATCHES_TOKEN }}
         run: |
           set -euo pipefail
-          test "$(stat -c '%s' "$ZIP")" = 5204805352
-          echo '524c2274ca8bd30d4adaec97b728b4cd1268051063fdc4d697c45a3aa5e9016a  '"$ZIP" | sha256sum -c -
-          test "$(unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p')" = 1794595788
+          test -n "$PATCHES_TOKEN"
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              'https://api.github.com/repos/Loukious/crdroid_onyx_patches/git/ref/heads/evolution-cnb',
+              headers={
+                  'Authorization': 'Bearer ' + os.environ['PATCHES_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=25) as response:
+              reference = json.load(response)
+          if reference.get('ref') != 'refs/heads/evolution-cnb':
+              raise SystemExit('Unexpected OTA feed branch')
+          print('OTA publishing token and target branch are available')
+          PY
+          test "$(stat -c '%s' "$ZIP")" = 5209702608
+          echo 'b11c91aa27984d6e57613f3a931218d90660bc439d0a5f86f51cc6441a216018  '"$ZIP" | sha256sum -c -
+          test "$(unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p')" = 1794703567
       - name: Upload verified package to SourceForge
         shell: bash
         env:
@@ -45,3 +71,190 @@ jobs:
           printf 'ls -l "%s"\n' "$DEST" > "$BATCH"
           sftp -b "$BATCH" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOSTS" -o ConnectTimeout=25 -i "$KEY" "$SF_USER@frs.sourceforge.net"
           echo "SourceForge upload complete: https://sourceforge.net/projects/$SF_PROJECT/files/$ROM_NAME/download"
+      - name: Publish the OTA feed and changelog
+        shell: bash
+        env:
+          PATCHES_TOKEN: ${{ secrets.PATCHES_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+
+          SLUG = 'Loukious/crdroid_onyx_patches'
+          BRANCH = 'evolution-cnb'
+          EXPECTED_NAME = 'EvolutionX-17.0-20261115-onyx-12.4-Unofficial.zip'
+          EXPECTED_SIZE = 5209702608
+          EXPECTED_SHA256 = 'b11c91aa27984d6e57613f3a931218d90660bc439d0a5f86f51cc6441a216018'
+          EXPECTED_TIMESTAMP = 1794703567
+          FEED_PATH = 'ota/onyx.json'
+          CHANGELOG_PATH = 'changelogs/onyx.txt'
+          TITLE = 'Evolution X 17.0 — POCO F7 (onyx) — unofficial builds by Loukious'
+          OLD_TITLE = 'Evolution X 16.0 — POCO F7 (onyx) — unofficial builds by Loukious'
+          FORUM = 'https://github.com/Loukious/crave_aosp_builder/discussions'
+          CHANGELOG_ENTRY = (
+              '2026-11-15 (12.4)\n'
+              '- Match Xiaomi Global stock automatic-brightness adjustments after moving\n'
+              '  the slider or switching between manual and Auto mode.\n'
+              '- Restore Onyx front/rear light-sensor policy and panel brightness\n'
+              '  mapping and transition rates.\n'
+              '- Includes Linux 6.18.39.\n\n'
+          )
+
+          class GitHubError(RuntimeError):
+              def __init__(self, status, method, path):
+                  self.status = status
+                  super().__init__(f'GitHub API {method} {path} failed with HTTP {status}')
+
+          def api(token, method, path, data=None):
+              body = None if data is None else json.dumps(data).encode()
+              request = urllib.request.Request(
+                  'https://api.github.com/' + path,
+                  data=body,
+                  method=method,
+                  headers={
+                      'Authorization': 'Bearer ' + token,
+                      'Accept': 'application/vnd.github+json',
+                      'Content-Type': 'application/json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  raise GitHubError(error.code, method, path) from None
+
+          def product_item(zip_path, rom_name):
+              if rom_name != EXPECTED_NAME or zip_path.name != EXPECTED_NAME:
+                  raise ValueError('Unexpected local OTA filename')
+              if zip_path.stat().st_size != EXPECTED_SIZE:
+                  raise ValueError('Local OTA size changed after verification')
+              products = json.loads((zip_path.parent / 'onyx.json').read_text())['response']
+              if not isinstance(products, list) or len(products) != 1:
+                  raise ValueError('Expected exactly one generated product metadata item')
+              product = products[0]
+              expected = {
+                  'filename': EXPECTED_NAME,
+                  'size': EXPECTED_SIZE,
+                  'sha256': EXPECTED_SHA256,
+                  'timestamp': EXPECTED_TIMESTAMP,
+                  'version': '12.4',
+                  'buildtype': 'userdebug',
+              }
+              if any(product.get(key) != value for key, value in expected.items()):
+                  raise ValueError('Generated product metadata differs from the verified OTA')
+              if not re.fullmatch(r'[0-9a-f]{32}', product.get('md5', '')):
+                  raise ValueError('Generated product metadata has no valid MD5')
+              item = {key: product[key] for key in (*expected, 'md5')}
+              item.update({
+                  'maintainer': 'Loukious',
+                  'oem': 'Xiaomi',
+                  'device': 'POCO F7',
+                  'download': 'https://downloads.sourceforge.net/project/onyx-evox-loukious/' + rom_name,
+                  'forum': FORUM,
+                  'firmware': 'https://sourceforge.net/projects/onyx-evox-loukious/files/',
+                  'paypal': 'https://buymeacoffee.com/loukious',
+                  'github': 'Loukious',
+                  'os_sdk_level': 37,
+                  'os_patch_level': '2026-11-01',
+              })
+              return item
+
+          def prepare_feed(previous, item):
+              feed = json.loads(previous)
+              history = feed.get('response')
+              if not isinstance(history, list) or any(
+                  not isinstance(entry, dict) or not isinstance(entry.get('timestamp'), int)
+                  for entry in history
+              ):
+                  raise ValueError('Unexpected existing OTA feed structure')
+              retained = [entry for entry in history if
+                          entry.get('sha256') != item['sha256'] and
+                          entry.get('filename') != item['filename']]
+              feed['response'] = sorted([item, *retained],
+                                        key=lambda entry: entry['timestamp'], reverse=True)
+              return json.dumps(feed, indent=2, ensure_ascii=False) + '\n'
+
+          def prepare_changelog(previous):
+              if previous.startswith(OLD_TITLE + '\n'):
+                  previous = TITLE + previous[len(OLD_TITLE):]
+              if CHANGELOG_ENTRY in previous:
+                  return previous
+              headings = list(re.finditer(r'(?m)^(\d{4}-\d{2}-\d{2}) \([^\n]+\)$', previous))
+              insertion = next((match.start() for match in headings
+                                if match.group(1) <= '2026-11-15'), len(previous))
+              prefix, suffix = previous[:insertion], previous[insertion:]
+              if not prefix:
+                  prefix = TITLE + '\n' + FORUM + '\n\n'
+              elif not prefix.endswith('\n\n'):
+                  prefix = prefix.rstrip('\n') + '\n\n'
+              return prefix + CHANGELOG_ENTRY + suffix
+
+          def text_at(token, path, revision):
+              content = api(token, 'GET', f'repos/{SLUG}/contents/{path}?ref={revision}')
+              if content.get('encoding') != 'base64':
+                  raise ValueError('Unsupported GitHub file encoding: ' + path)
+              return base64.b64decode(content['content']).decode()
+
+          def main():
+              token = os.environ['PATCHES_TOKEN']
+              if not token:
+                  raise ValueError('PATCHES_TOKEN is required to publish the OTA feed')
+              item = product_item(Path(os.environ['ZIP']), os.environ['ROM_NAME'])
+              for attempt in range(4):
+                  base = api(token, 'GET', f'repos/{SLUG}/git/ref/heads/{BRANCH}')['object']['sha']
+                  commit = api(token, 'GET', f'repos/{SLUG}/git/commits/{base}')
+                  old_feed = text_at(token, FEED_PATH, base)
+                  old_changelog = text_at(token, CHANGELOG_PATH, base)
+                  replacements = {
+                      FEED_PATH: (old_feed, prepare_feed(old_feed, item)),
+                      CHANGELOG_PATH: (old_changelog, prepare_changelog(old_changelog)),
+                  }
+                  changes = {path: new for path, (old, new) in replacements.items() if old != new}
+                  if not changes:
+                      print('Verified OTA and changelog are already published')
+                      return
+                  entries = []
+                  for path, content in changes.items():
+                      blob = api(token, 'POST', f'repos/{SLUG}/git/blobs', {
+                          'content': base64.b64encode(content.encode()).decode(),
+                          'encoding': 'base64',
+                      })
+                      entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+                  tree = api(token, 'POST', f'repos/{SLUG}/git/trees', {
+                      'base_tree': commit['tree']['sha'], 'tree': entries,
+                  })
+                  identity = {'name': 'onyx-ci', 'email': 'ci@users.noreply.github.com'}
+                  published = api(token, 'POST', f'repos/{SLUG}/git/commits', {
+                      'message': 'ota: onyx local build 2026-11-15 (12.4)',
+                      'tree': tree['sha'], 'parents': [base],
+                      'author': identity, 'committer': identity,
+                  })
+                  try:
+                      api(token, 'PATCH', f'repos/{SLUG}/git/refs/heads/{BRANCH}', {
+                          'sha': published['sha'], 'force': False,
+                      })
+                  except GitHubError as error:
+                      if error.status not in (409, 422) or attempt == 3:
+                          raise
+                      print('OTA branch changed concurrently; merging into its latest commit')
+                      time.sleep(attempt + 1)
+                      continue
+                  print('OTA feed and changelog published: https://github.com/' + SLUG + '/commit/' + published['sha'])
+                  print('OTA feed: https://raw.githubusercontent.com/' + SLUG + '/' + BRANCH + '/' + FEED_PATH)
+                  return
+              raise RuntimeError('Could not publish OTA feed after concurrent updates')
+
+          if __name__ == '__main__':
+              try:
+                  main()
+              except Exception as error:
+                  raise SystemExit(str(error)) from None
+          PY
