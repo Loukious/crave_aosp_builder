@@ -15,8 +15,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, onyx-ota-local-20261019]
     timeout-minutes: 240
     env:
-      ZIP: /home/loukious/Android/custom-rom/out/target/product/onyx/EvolutionX-17.0-20261115-onyx-12.4-Unofficial.zip
-      ROM_NAME: EvolutionX-17.0-20261115-onyx-12.4-Unofficial.zip
+      ZIP: /home/loukious/Android/custom-rom/out/target/product/onyx/EvolutionX-17.0-20261116-onyx-12.4-Unofficial.zip
+      ROM_NAME: EvolutionX-17.0-20261116-onyx-12.4-Unofficial.zip
     steps:
       - name: Verify exact completed package
         shell: bash
@@ -44,9 +44,9 @@ jobs:
               raise SystemExit('Unexpected OTA feed branch')
           print('OTA publishing token and target branch are available')
           PY
-          test "$(stat -c '%s' "$ZIP")" = 5209702608
-          echo 'b11c91aa27984d6e57613f3a931218d90660bc439d0a5f86f51cc6441a216018  '"$ZIP" | sha256sum -c -
-          test "$(unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p')" = 1794703567
+          test "$(stat -c '%s' "$ZIP")" = 5210032734
+          echo '4b775934b341455c18a23abe69aafebfaf70875760878aec6ea262002e8da5fa  '"$ZIP" | sha256sum -c -
+          test "$(unzip -p "$ZIP" META-INF/com/android/metadata | sed -n 's/^post-timestamp=//p')" = 1794815245
       - name: Upload verified package to SourceForge
         shell: bash
         env:
@@ -89,22 +89,23 @@ jobs:
 
           SLUG = 'Loukious/crdroid_onyx_patches'
           BRANCH = 'evolution-cnb'
-          EXPECTED_NAME = 'EvolutionX-17.0-20261115-onyx-12.4-Unofficial.zip'
-          EXPECTED_SIZE = 5209702608
-          EXPECTED_SHA256 = 'b11c91aa27984d6e57613f3a931218d90660bc439d0a5f86f51cc6441a216018'
-          EXPECTED_TIMESTAMP = 1794703567
+          EXPECTED_NAME = 'EvolutionX-17.0-20261116-onyx-12.4-Unofficial.zip'
+          EXPECTED_SIZE = 5210032734
+          EXPECTED_SHA256 = '4b775934b341455c18a23abe69aafebfaf70875760878aec6ea262002e8da5fa'
+          EXPECTED_TIMESTAMP = 1794815245
           FEED_PATH = 'ota/onyx.json'
           CHANGELOG_PATH = 'changelogs/onyx.txt'
           TITLE = 'Evolution X 17.0 — POCO F7 (onyx) — unofficial builds by Loukious'
           OLD_TITLE = 'Evolution X 16.0 — POCO F7 (onyx) — unofficial builds by Loukious'
           FORUM = 'https://github.com/Loukious/crave_aosp_builder/discussions'
           CHANGELOG_ENTRY = (
-              '2026-11-15 (12.4)\n'
-              '- Match Xiaomi Global stock automatic-brightness adjustments after moving\n'
-              '  the slider or switching between manual and Auto mode.\n'
-              '- Restore Onyx front/rear light-sensor policy and panel brightness\n'
-              '  mapping and transition rates.\n'
-              '- Includes Linux 6.18.39.\n\n'
+              '2026-11-16 (12.4)\n'
+              '- Fix Global charging voltage protection stopping charging near 94%.\n'
+              '- Show a countdown for upcoming At a Glance calendar events, then\n'
+              '  "now" while the event remains active until its end.\n'
+              '- Sync the latest Evolution X sources, including the merged Quick\n'
+              '  Settings double-tap sleep and At a Glance placement fixes.\n'
+              '- Includes Linux 6.18.39 with KernelSU Next.\n\n'
           )
 
           class GitHubError(RuntimeError):
@@ -189,7 +190,7 @@ jobs:
                   return previous
               headings = list(re.finditer(r'(?m)^(\d{4}-\d{2}-\d{2}) \([^\n]+\)$', previous))
               insertion = next((match.start() for match in headings
-                                if match.group(1) <= '2026-11-15'), len(previous))
+                                if match.group(1) <= '2026-11-16'), len(previous))
               prefix, suffix = previous[:insertion], previous[insertion:]
               if not prefix:
                   prefix = TITLE + '\n' + FORUM + '\n\n'
@@ -233,7 +234,7 @@ jobs:
                   })
                   identity = {'name': 'onyx-ci', 'email': 'ci@users.noreply.github.com'}
                   published = api(token, 'POST', f'repos/{SLUG}/git/commits', {
-                      'message': 'ota: onyx local build 2026-11-15 (12.4)',
+                      'message': 'ota: onyx local build 2026-11-16 (12.4)',
                       'tree': tree['sha'], 'parents': [base],
                       'author': identity, 'committer': identity,
                   })
