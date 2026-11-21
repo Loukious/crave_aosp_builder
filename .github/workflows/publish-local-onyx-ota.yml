@@ -30,19 +30,20 @@ jobs:
           import os
           import urllib.request
 
-          request = urllib.request.Request(
-              'https://api.github.com/repos/Loukious/crdroid_onyx_patches/git/ref/heads/evolution-cnb-onyx618',
-              headers={
-                  'Authorization': 'Bearer ' + os.environ['PATCHES_TOKEN'],
-                  'Accept': 'application/vnd.github+json',
-                  'X-GitHub-Api-Version': '2022-11-28',
-              },
-          )
-          with urllib.request.urlopen(request, timeout=25) as response:
-              reference = json.load(response)
-          if reference.get('ref') != 'refs/heads/evolution-cnb-onyx618':
-              raise SystemExit('Unexpected OTA feed branch')
-          print('OTA publishing token and target branch are available')
+          for branch in ('evolution-cnb-onyx618', 'evolution-cnb'):
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/Loukious/crdroid_onyx_patches/git/ref/heads/' + branch,
+                  headers={
+                      'Authorization': 'Bearer ' + os.environ['PATCHES_TOKEN'],
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=25) as response:
+                  reference = json.load(response)
+              if reference.get('ref') != 'refs/heads/' + branch:
+                  raise SystemExit('Unexpected OTA feed branch')
+          print('OTA publishing token and both target branches are available')
           PY
           python3 - <<'PY'
           import json
@@ -104,7 +105,8 @@ jobs:
           import urllib.request
 
           SLUG = 'Loukious/crdroid_onyx_patches'
-          BRANCH = 'evolution-cnb-onyx618'
+          # Older installed ROMs keep the legacy branch URL in their Updater APK.
+          BRANCHES = ('evolution-cnb-onyx618', 'evolution-cnb')
           EXPECTED_NAME = 'EvolutionX-17.0-20261120-onyx-12.4-Unofficial.zip'
           EXPECTED_SIZE = 5265410584
           EXPECTED_SHA256 = 'f760765501a301d27745a2c1b0661ecf37c82efc2bb7c94b116128be2f4bce65'
@@ -222,13 +224,9 @@ jobs:
                   raise ValueError('Unsupported GitHub file encoding: ' + path)
               return base64.b64decode(content['content']).decode()
 
-          def main():
-              token = os.environ['PATCHES_TOKEN']
-              if not token:
-                  raise ValueError('PATCHES_TOKEN is required to publish the OTA feed')
-              item = product_item(Path(os.environ['ZIP']), os.environ['ROM_NAME'])
+          def publish_branch(token, item, branch):
               for attempt in range(4):
-                  base = api(token, 'GET', f'repos/{SLUG}/git/ref/heads/{BRANCH}')['object']['sha']
+                  base = api(token, 'GET', f'repos/{SLUG}/git/ref/heads/{branch}')['object']['sha']
                   commit = api(token, 'GET', f'repos/{SLUG}/git/commits/{base}')
                   old_feed = text_at(token, FEED_PATH, base)
                   old_changelog = text_at(token, CHANGELOG_PATH, base)
@@ -238,7 +236,7 @@ jobs:
                   }
                   changes = {path: new for path, (old, new) in replacements.items() if old != new}
                   if not changes:
-                      print('Verified OTA and changelog are already published')
+                      print(f'Verified OTA and changelog are already published on {branch}')
                       return
                   entries = []
                   for path, content in changes.items():
@@ -257,7 +255,7 @@ jobs:
                       'author': identity, 'committer': identity,
                   })
                   try:
-                      api(token, 'PATCH', f'repos/{SLUG}/git/refs/heads/{BRANCH}', {
+                      api(token, 'PATCH', f'repos/{SLUG}/git/refs/heads/{branch}', {
                           'sha': published['sha'], 'force': False,
                       })
                   except GitHubError as error:
@@ -267,9 +265,17 @@ jobs:
                       time.sleep(attempt + 1)
                       continue
                   print('OTA feed and changelog published: https://github.com/' + SLUG + '/commit/' + published['sha'])
-                  print('OTA feed: https://raw.githubusercontent.com/' + SLUG + '/' + BRANCH + '/' + FEED_PATH)
+                  print('OTA feed: https://raw.githubusercontent.com/' + SLUG + '/' + branch + '/' + FEED_PATH)
                   return
               raise RuntimeError('Could not publish OTA feed after concurrent updates')
+
+          def main():
+              token = os.environ['PATCHES_TOKEN']
+              if not token:
+                  raise ValueError('PATCHES_TOKEN is required to publish the OTA feed')
+              item = product_item(Path(os.environ['ZIP']), os.environ['ROM_NAME'])
+              for branch in BRANCHES:
+                  publish_branch(token, item, branch)
 
           if __name__ == '__main__':
               try:
